@@ -1858,6 +1858,7 @@ function updatePelican(dt, v, t) {
     rpos[o + 3] = cur.x - _s1.x * w; rpos[o + 4] = cur.y - _s1.y * w; rpos[o + 5] = cur.z - _s1.z * w;
   }
   P.ribbon.attributes.position.needsUpdate = true;
+  P.ribbon.computeVertexNormals();   // 顶点动了，法线必须重算，否则会渲染成黑片
 }
 
 /* ---------------- 世界流转 ---------------- */
