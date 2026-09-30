@@ -843,6 +843,23 @@ function makePouch(len, depth, width, segU, segV) {
   g.computeVertexNormals();
   return g;
 }
+function makeRibbon(nSpan) {
+  const g = new THREE.BufferGeometry();
+  const pos = new Float32Array((nSpan + 1) * 2 * 3);
+  const uv = new Float32Array((nSpan + 1) * 2 * 2);
+  const idx = [];
+  for (let i = 0; i < nSpan; i++) {
+    const a = i * 2, b = i * 2 + 1, c = (i + 1) * 2, d = (i + 1) * 2 + 1;
+    idx.push(a, c, b, b, c, d);
+  }
+  for (let i = 0; i <= nSpan; i++) { uv[i * 4] = i / nSpan; uv[i * 4 + 1] = 0; uv[i * 4 + 2] = i / nSpan; uv[i * 4 + 3] = 1; }
+  g.setIndex(idx);
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.2, 0), 3);
+  return g;
+}
 function blob(rx, ry, rz, deform) {
   const g = new THREE.SphereGeometry(1, 34, 26);
   const p = g.attributes.position;
@@ -1068,15 +1085,14 @@ function buildPelican() {
   // ---------- 围巾 ----------
   P.scarfSegs = 7;
   P.scarfChain = [];
-  for (let i = 0; i < P.scarfSegs; i++) P.scarfChain.push(new THREE.Vector3(.02 - i * .07, 1.30 - i * .012, -.11 - i * .024));
+  for (let i = 0; i < P.scarfSegs; i++) P.scarfChain.push(new THREE.Vector3(.02 - i * .095, 1.30 - i * .016, -.095 - i * .012));
   P.scarfNodes = [];
   P.scarfGroup = new THREE.Group();
   P.body.add(P.scarfGroup);
-  for (let i = 0; i < P.scarfSegs - 1; i++) {
-    const n = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 1, 1), P.scarf);
-    n.castShadow = true;
-    P.scarfGroup.add(n); P.scarfNodes.push(n);
-  }
+  P.ribbon = makeRibbon(P.scarfSegs - 1);
+  const rib = new THREE.Mesh(P.ribbon, P.scarf);
+  rib.castShadow = true; rib.frustumCulled = false;
+  P.scarfGroup.add(rib);
   const knot = new THREE.Mesh(new THREE.SphereGeometry(.05, 12, 10), P.scarf);
   knot.position.set(.03, 1.30, -.095); knot.scale.set(1.1, .85, 1); P.body.add(knot);
 
@@ -1817,19 +1833,31 @@ function updatePelican(dt, v, t) {
   for (let i = 0; i < P.scarfChain.length; i++) {
     const pt = P.scarfChain[i];
     // 向后甩，同时明显往身体外侧（+Z）飘，避免穿过躯干
-    _s2.set(-.94, -.06 - i * .06, -.42 + Math.sin(t * 7.5 + i * .85) * .16 * wind).normalize();
-    _s3.copy(_s1).addScaledVector(_s2, .082);
+    _s2.set(-1, -.10 - i * .05, -.15 + Math.sin(t * 7.5 + i * .85) * .18 * wind).normalize();
+    _s3.copy(_s1).addScaledVector(_s2, .098);
     pt.lerp(_s3, 1 - Math.exp(-(15 + i * 3) * dt));
     _s1.copy(pt);
   }
-  for (let i = 0; i < P.scarfNodes.length; i++) {
-    const a = P.scarfChain[i], b = P.scarfChain[i + 1], n = P.scarfNodes[i];
-    n.position.copy(a).lerp(b, .5);
-    n.lookAt(b);
-    n.rotateY(Math.PI / 2);
-    n.rotateZ(Math.sin(t * 8 + i) * .16);
-    n.scale.set(a.distanceTo(b) * 1.7, .11 * (1 - i / P.scarfNodes.length * .4), 1);
+  // 飘带：每个节点向两侧展开，始终正对相机
+  const rpos = P.ribbon.attributes.position.array;
+  const nSeg = P.scarfChain.length;
+  for (let i = 0; i < nSeg; i++) {
+    const cur = P.scarfChain[i];
+    const nxt = P.scarfChain[Math.min(i + 1, nSeg - 1)];
+    const prv = P.scarfChain[Math.max(i - 1, 0)];
+    _s3.subVectors(nxt, prv);
+    if (_s3.lengthSq() < 1e-8) _s3.set(-1, 0, 0);
+    _s3.normalize();
+    _s2.copy(camera.position).sub(cur).normalize();
+    _s1.crossVectors(_s3, _s2);
+    if (_s1.lengthSq() < 1e-8) _s1.set(0, 1, 0);
+    _s1.normalize();
+    const w = .055 * (1 - i / (nSeg - 1) * .45) * (1 + Math.sin(t * 9 + i) * .12);
+    const o = i * 6;
+    rpos[o] = cur.x + _s1.x * w; rpos[o + 1] = cur.y + _s1.y * w; rpos[o + 2] = cur.z + _s1.z * w;
+    rpos[o + 3] = cur.x - _s1.x * w; rpos[o + 4] = cur.y - _s1.y * w; rpos[o + 5] = cur.z - _s1.z * w;
   }
+  P.ribbon.attributes.position.needsUpdate = true;
 }
 
 /* ---------------- 世界流转 ---------------- */
